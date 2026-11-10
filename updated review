@@ -1,0 +1,127 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance": [],
+      "authorship_tag": "ABX9TyOA4prSJIvUJ5rQVA+hdsK5",
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/stacykeago-pergolux/Last-mile-SMK/blob/main/updated%20review\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "id": "kPLj-J5fI8D_"
+      },
+      "outputs": [],
+      "source": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "/*\n",
+        "smk.09.11.26\n",
+        "last-mile carrier shipment staging/dimension model\n",
+        "    source: READ_WH\n",
+        "    database: PROD_DB\n",
+        "    schema: Z_SOURCE\n",
+        "    source table: PROD_DB.Z_SOURCE.CUSTOM_INGEST_LASTMILE_DELIVERIES\n",
+        "    granularity: carrier + carrier_ref,\n",
+        "    notes:\n",
+        "        columns unpack from `raw` VARIANT column[span_0](start_span)[span_0](end_span)\n",
+        "        empty strings come in as \"\" - cast to null using nullif()\n",
+        "        dates standardized to UTC timestamp_tz\n",
+        "        dest_zip as varchar and package_count cast to integer\n",
+        "\n",
+        "*/\n",
+        "\n",
+        "select\n",
+        "    -- core dims & primary identifiers\n",
+        "    nullif(raw:order::varchar, '')                                               as order_id,\n",
+        "    nullif(raw:country::varchar, '')                                             as shop_country_code,\n",
+        "    nullif(raw:carrier::varchar, '')                                             as carrier,\n",
+        "    (nullif(raw:carrier_ref::varchar, ''))                                       as carrier_ref,\n",
+        "    nullif(raw:service::varchar, '')                                             as service_level,\n",
+        "    nullif(raw:carrier_sla::varchar, '')                                         as carrier_sla,\n",
+        "    nullif(raw:type::varchar, '')                                                as shipment_type,\n",
+        "    nullif(raw:sub_carrier::varchar, '')                                         as sub_carrier,\n",
+        "    nullif(raw:change::varchar, '')                                              as change_status,\n",
+        "\n",
+        "    -- destination details\n",
+        "    nullif(raw:dest_city::varchar, '')                                           as dest_city,\n",
+        "    nullif(raw:dest_country::varchar, '')                                        as dest_country,\n",
+        "    nullif(raw:dest_region::varchar, '')                                         as dest_region,\n",
+        "    nullif(raw:dest_zip::varchar, '')                                            as dest_zip,\n",
+        "\n",
+        "    -- status & stage\n",
+        "    nullif(raw:stage::varchar, '')                                               as stage,\n",
+        "    nullif(raw:status::varchar, '')                                              as status,\n",
+        "    TRY_TO_BOOLEAN(raw:on_time::VARCHAR)                                         as on_time_status,\n",
+        "    nullif(raw:problem::varchar, '')                                             as problem_description,\n",
+        "    nullif(raw:note::varchar, '')                                                as shipment_note,\n",
+        "    nullif(raw:pod::varchar, '')                                                 as pod_reference,\n",
+        "\n",
+        "    -- logistics metrics & volumes\n",
+        "    try_to_number(nullif(raw:packages::varchar, ''))                             as package_count,\n",
+        "    try_to_numeric(nullif(raw:weight_kg::varchar, ''), 10, 2)                    as weight_kg,\n",
+        "    try_to_number(nullif(raw:open_days::varchar, ''))                            as open_days,\n",
+        "    try_to_numeric(nullif(raw:days_handover_to_delivery::varchar, ''))           as days_handover_to_delivery,\n",
+        "    try_to_numeric(nullif(raw:days_hub_to_delivery::varchar, ''))                as days_hub_to_delivery,\n",
+        "    try_to_numeric(nullif(raw:days_vs_planned::varchar, ''))                     as days_vs_planned,\n",
+        "    try_to_numeric(nullif(raw:workdays_handover_to_delivery::varchar, ''))       as workdays_handover_to_delivery,\n",
+        "    try_to_numeric(nullif(raw:workdays_hub_to_delivery::varchar, ''))            as workdays_hub_to_delivery,\n",
+        "\n",
+        "    -- hub details\n",
+        "    nullif(raw:hub::varchar, '')                                                 as hub_code,\n",
+        "    try_to_date(nullif(raw:hub_date::varchar, ''))::timestamp_tz                 as hub_at,\n",
+        "\n",
+        "    -- delivery & attempt milestones (actual timestamps)\n",
+        "    TRY_TO_BOOLEAN(raw:first_attempt::VARCHAR) AS is_first_attempt,\n",
+        "    TRY_TO_TIMESTAMP_TZ(raw:delivered_at::VARCHAR)   AS delivered_at,\n",
+        "\n",
+        "\n",
+        "    -- calendar boundaries (converted straight to midnight UTC timestamp)\n",
+        "    try_to_date(nullif(raw:handover_date::varchar, ''))::timestamp_tz             as handover_at,\n",
+        "    try_to_date(nullif(raw:planned_date::varchar, ''))::timestamp_tz              as planned_at,\n",
+        "    nullif(raw:planned_window::varchar, '')                                      as planned_window,\n",
+        "    try_to_date(nullif(raw:run_date::varchar, ''))::timestamp_tz                  as run_at,\n",
+        "\n",
+        "    -- ingestion / source metadata\n",
+        "    country                                                                      as source_country,\n",
+        "    carrier                                                                      as source_carrier,\n",
+        "    _source_path::varchar                                                        as _source_path,\n",
+        "    _file_name::varchar                                                          as _file_name,\n",
+        "    try_to_timestamp_tz(_file_created_at::varchar)                               as _file_created_at,\n",
+        "    try_to_timestamp_tz(_loaded_at::varchar)                                     as _loaded_at\n",
+        "\n",
+        "\n",
+        "from PROD_DB.Z_SOURCE.CUSTOM_INGEST_LASTMILE_DELIVERIES\n",
+        ";\n"
+      ],
+      "metadata": {
+        "id": "G2EYhrWeJHx7"
+      },
+      "execution_count": null,
+      "outputs": []
+    }
+  ]
+}
